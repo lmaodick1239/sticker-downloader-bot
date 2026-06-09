@@ -1,26 +1,19 @@
 import os
 import shutil
-import multiprocessing
 from typing import List, Tuple
-from pathlib import Path
+
 import grequests
 import telebot
 from config import STICKERS_DIR, TOKEN, URL
 from telebot.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from concurrent.futures import ThreadPoolExecutor
-import io
-from PIL import Image
 
-# This will be executed by both the main process and worker processes,
-# giving each worker its own independent TeleBot instance.
+
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 sticker_data = dict()
 CONTENT_TYPES = ["text", "audio", "document", "photo", "sticker",
                  "video", "video_note", "voice", "location", "contact", "pinned_message",
                  "animation"
                  ]
-
-task_queue = None
 
 @bot.message_handler(commands=["start"])
 def start(message: Message) -> None:
@@ -49,20 +42,22 @@ def message(message: Message) -> None:
 
     else:
         sticker_info = message.sticker
+        sticker_data[message.chat.id] = {'file_id': sticker_info.file_id,
+                                          'set_name': sticker_info.set_name}
         inline_markup = InlineKeyboardMarkup(row_width=2).add(
+        from pathlib import Path
+        from concurrent.futures import ThreadPoolExecutor
+        from PIL import Image
             InlineKeyboardButton("Download the sticker", callback_data="sticker"),
             InlineKeyboardButton("Download sticker pack", callback_data="pack"),
         )
-        sent_msg = bot.send_message(
+        bot.send_message(
             message.chat.id,
             "Information about the sticker:\n"
             + f"emoji: {sticker_info.emoji}\n"
             + f"set name: {sticker_info.set_name}",
             reply_markup=inline_markup,
         )
-        # Store the sticker info using the bot's message ID so multiple requests don't overwrite each other
-        sticker_data[sent_msg.id] = {'file_id': sticker_info.file_id,
-                                          'set_name': sticker_info.set_name}
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -72,60 +67,12 @@ def callback(call: CallbackQuery) -> None:
     :param call: CallbackQuery object.
     """
     chat_id = call.message.chat.id
-    message_id = call.message.id
-    global sticker_data, task_queue
-    
-    # Safely pop the data to avoid KeyError if the button is pressed multiple times
-    sticker_info = sticker_data.pop(message_id, None)
-    
-    try:
-        bot.edit_message_reply_markup(chat_id, call.message.id, reply_markup=None)
-    except Exception:
-        pass
-
-    if sticker_info is None:
-        bot.send_message(chat_id, "⚠️ No pending sticker found or already processing.")
-        return
-
-    bot.send_message(chat_id, "⏳ Your download has been queued. Please wait...")
-
-    if task_queue is not None:
-        task_queue.put((chat_id, call.data, sticker_info))
-    else:
-        # Fallback if queue is not initialized
-        if call.data == "sticker":
-            sticker(sticker_info, chat_id)
-        elif call.data == "pack":
-            sticker_pack(sticker_info, chat_id)
-
-
-def download_worker(queue):
-    """Worker process that takes tasks from the queue and executes them."""
-    print("Worker process started.")
-    while True:
-        try:
-            task = queue.get()
-            if task is None:  # Sentinel value to shut down workers
-                break
-            
-            chat_id, action, sticker_info = task
-            print(f"Processing {action} for chat {chat_id}...")
-            
-            if action == "sticker":
-                sticker(sticker_info, chat_id)
-            elif action == "pack":
-                sticker_pack(sticker_info, chat_id)
-                
-            bot.send_message(chat_id, "✅ Your sticker task has been completed!")
-                
-        except Exception as e:
-            print(f"Error in worker process: {e}")
-            try:
-                bot.send_message(chat_id, "⚠️ An error occurred while processing your sticker.")
-            except Exception:
-                pass
-        finally:
-            queue.task_done()
+    sticker_info = sticker_data.pop(chat_id)
+    bot.edit_message_reply_markup(chat_id, call.message.id, reply_markup=None)
+    if call.data == "sticker":
+        sticker(sticker_info, chat_id)
+    elif call.data == "pack":
+        sticker_pack(sticker_info, chat_id)
 
 
 def sticker(sticker_info: dict, chat_id: int) -> None:
@@ -142,14 +89,14 @@ def sticker(sticker_info: dict, chat_id: int) -> None:
     file_name = file_path.split("/")[1]
     images = download_stickers([(file_path, file_name)])
     for name, image in images:
-        print(f"Saving image...{name}")
         save_image(image.content, name, path_to_folder)
     # Folder archiving
-    shutil.make_archive(base_name=path_to_folder, format="zip", root_dir=path_to_folder)
-    with open(path_to_folder + ".zip", "rb") as archive:
+    shutil.make_archive(base_name=path_to_folder, format="tar", root_dir=path_to_folder)
+    with open(path_to_folder + ".tar", "rb") as archive:
         bot.send_document(chat_id, archive)
     # Delete tar file and folder
     delete_folder_file(path_to_folder)
+<<<<<<< HEAD
     
     
 def convert_image(webp_path):
@@ -181,19 +128,7 @@ def batch_convert(path: str) -> None:
         print("No .webp files found in this directory.")
         return
 
-    print(f"Found {len(webp_files)} images. Starting conversion...")
-    
-    # Process files in parallel using all available CPU threads
-    with ThreadPoolExecutor() as executor:
-        executor.map(convert_image, webp_files)
-    # After conversion, delete original .webp files
-    with ThreadPoolExecutor() as executor:
-        executor.submit(delete_webp_files, path)
-    print("Mass conversion completed!")
-
-def sticker_pack(sticker_info: dict, chat_id: int) -> None:
-    """Handle the "pack" button.
-    Create a folder, asynchronous download of stickers, create archive file of folder.
+            bot.polling(none_stop=True)
     Send to user archive file and delete archive and folder.
 
     :param sticker_info: A dictionary with data sticker.
@@ -204,18 +139,16 @@ def sticker_pack(sticker_info: dict, chat_id: int) -> None:
     path_to_folder = create_folder(set_name, chat_id)
     sticker_list = bot.get_sticker_set(set_name).stickers
     tasks = []
-    for sticker_obj in sticker_list:
-        file_path = bot.get_file(sticker_obj.file_id).file_path
+    for sticker in sticker_list:
+        file_path = bot.get_file(sticker.file_id).file_path
         file_name = file_path.split("/")[1]
         tasks.append((file_path, file_name))
     images = download_stickers(tasks)
     for name, image in images:
         save_image(image.content, name, path_to_folder)
-    batch_convert(Path(path_to_folder))
-        
     # Folder archiving
-    shutil.make_archive(base_name=path_to_folder, format="zip", root_dir=path_to_folder)
-    with open(path_to_folder + ".zip", "rb") as archive:
+    shutil.make_archive(base_name=path_to_folder, format="tar", root_dir=path_to_folder)
+    with open(path_to_folder + ".tar", "rb") as archive:
         bot.send_document(chat_id, archive)
     # Delete tar file and folder
     delete_folder_file(path_to_folder)
@@ -233,18 +166,15 @@ def download_stickers(tasks: List[Tuple]) -> List[Tuple]:
     return list(zip(file_names, response))
 
 
-import uuid
-
 def create_folder(set_name: str, chat_id: int) -> str:
     """Create folder for stickers.
 
     :param chat_id: A user's id.
     :return: Path to folder.
     """
-    unique_id = uuid.uuid4().hex[:6]
-    path = os.path.join(STICKERS_DIR, f"{set_name}_{chat_id}_{unique_id}")
+    path = os.path.join(STICKERS_DIR, set_name + f'_{chat_id}')
     if not os.path.exists(path):
-        os.makedirs(path)
+        os.mkdir(path)
     return path
 
 
@@ -254,7 +184,7 @@ def delete_folder_file(path: str) -> None:
     :param path: Path to folder.
     """
     # Delete archive file
-    os.remove(path + ".zip")
+    os.remove(path + ".tar")
     # Delete folder
     shutil.rmtree(path)
 
@@ -271,6 +201,7 @@ def save_image(image: bytes, image_name: str, path: str) -> None:
 
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     task_queue = multiprocessing.JoinableQueue()
 
     # Spawn a pool of worker processes
@@ -287,3 +218,6 @@ if __name__ == "__main__":
         bot.polling(none_stop=True)
     except KeyboardInterrupt:
         print("Stopping...")
+=======
+    bot.polling(none_stop=True)
+>>>>>>> parent of f7ea542 (blows your whole shit up with AI slop)
