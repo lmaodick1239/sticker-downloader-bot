@@ -1,8 +1,12 @@
 import os
 from pathlib import Path
 
+import dotenv
+dotenv.load_dotenv()
+
+
 # Telegram token
-TOKEN = "8863066329:AAGjNr6yKuHCQAz0Astk7Vi-pMzIMJyBlh4"
+TOKEN = os.getenv("TOKEN")
 # Path to project folder
 BASE_DIR = Path("__file__").parent.parent.absolute()
 # Path to stickers folder

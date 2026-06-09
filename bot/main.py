@@ -161,6 +161,17 @@ def convert_image(webp_path):
         img.save(png_path, 'PNG')
     print(f"Successfully converted: {webp_path.name}")
         
+def delete_webp_files(path: str) -> None:
+    """Delete .webp files from folder.
+
+    :param path: Path to folder.
+    """
+    for file in Path(path).glob("*.webp"):
+        try:
+            file.unlink()
+            print(f"Deleted: {file.name}")
+        except Exception as e:
+            print(f"Error deleting {file.name}: {e}")
         
 def batch_convert(path: str) -> None:
     # Target all .webp files in current working directory
@@ -175,7 +186,9 @@ def batch_convert(path: str) -> None:
     # Process files in parallel using all available CPU threads
     with ThreadPoolExecutor() as executor:
         executor.map(convert_image, webp_files)
-        
+    # After conversion, delete original .webp files
+    with ThreadPoolExecutor() as executor:
+        executor.submit(delete_webp_files, path)
     print("Mass conversion completed!")
 
 def sticker_pack(sticker_info: dict, chat_id: int) -> None:
@@ -261,7 +274,7 @@ if __name__ == "__main__":
     task_queue = multiprocessing.JoinableQueue()
 
     # Spawn a pool of worker processes
-    num_workers = 4
+    num_workers = os.cpu_count() or 4  # Use number of CPU cores or default to 4
     processes = []
     for _ in range(num_workers):
         p = multiprocessing.Process(target=download_worker, args=(task_queue,))
