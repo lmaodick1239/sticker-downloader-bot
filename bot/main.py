@@ -1,11 +1,16 @@
+bot = telebot.TeleBot(TOKEN, parse_mode=None)
 import os
 import shutil
 from typing import List, Tuple
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 
 import grequests
 import telebot
 from config import STICKERS_DIR, TOKEN, URL
 from telebot.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from PIL import Image
 
 
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
@@ -93,47 +98,72 @@ def sticker(sticker_info: dict, chat_id: int) -> None:
         bot.send_document(chat_id, archive)
     # Delete tar file and folder
     delete_folder_file(path_to_folder)
+<<<<<<< HEAD
 
+=======
+    
+    
+def convert_image(webp_path):
+    # Define output path with .png extension
+    png_path = webp_path.with_suffix('.png')
+    
+    # Convert and save
+    with Image.open(webp_path) as img:
+        img.save(png_path, 'PNG')
+    print(f"Successfully converted: {webp_path.name}")
+        
+def delete_webp_files(path: str) -> None:
+    """Delete .webp files from folder.
 
-def sticker_pack(sticker_info: dict, chat_id: int) -> None:
-    """Handle the "pack" button.
-    Create a folder, asynchronous download of stickers, create archive file of folder.
-    Send to user archive file and delete archive and folder.
-
-    :param sticker_info: A dictionary with data sticker.
-    :param chat_id: A user's id.
+    :param path: Path to folder.
     """
-    bot.send_message(chat_id, "Please wait a moment😛")
-    set_name = sticker_info["set_name"]
-    path_to_folder = create_folder(set_name, chat_id)
-    sticker_list = bot.get_sticker_set(set_name).stickers
-    tasks = []
-    for sticker in sticker_list:
-        file_path = bot.get_file(sticker.file_id).file_path
-        file_name = file_path.split("/")[1]
-        tasks.append((file_path, file_name))
-    images = download_stickers(tasks)
-    for name, image in images:
-        save_image(image.content, name, path_to_folder)
-    # Folder archiving
-    shutil.make_archive(base_name=path_to_folder, format="tar", root_dir=path_to_folder)
-    with open(path_to_folder + ".tar", "rb") as archive:
-        bot.send_document(chat_id, archive)
-    # Delete tar file and folder
-    delete_folder_file(path_to_folder)
+    for file in Path(path).glob("*.webp"):
+        try:
+            file.unlink()
+            print(f"Deleted: {file.name}")
+        except Exception as e:
+            print(f"Error deleting {file.name}: {e}")
+        
+def batch_convert(path: str) -> None:
+    # Target all .webp files in current working directory
+    webp_files = list(path.glob("*.webp"))
+    
+    if not webp_files:
+        print("No .webp files found in this directory.")
+        return
+
+    print(f"Found {len(webp_files)} images. Starting conversion...")
+    
+    # Process files in parallel using all available CPU threads
+    with ThreadPoolExecutor() as executor:
+    
+
+def convert_image(webp_path: Path) -> None:
+    png_path = webp_path.with_suffix('.png')
+    with Image.open(webp_path) as img:
+        img.save(png_path, 'PNG')
 
 
-def download_stickers(tasks: List[Tuple]) -> List[Tuple]:
-    """Asynchronous download of stickers from Telegram server.
-
-    :param tasks: List of tuples with image name and path.
-    :return: List of tuples image name and response
-    """
-    file_names = [task[1] for task in tasks]
-    gen = (grequests.get(URL.format(TOKEN=TOKEN, file_path=task[0])) for task in tasks)
-    response = grequests.map(gen)
     return list(zip(file_names, response))
+    for file in path.glob("*.webp"):
+        try:
+            file.unlink()
+            print(f"Deleted: {file.name}")
+        except Exception as e:
+            print(f"Error deleting {file.name}: {e}")
 
+
+
+    webp_files = list(path.glob("*.webp"))
+    if not webp_files:
+        print("No .webp files found in this directory.")
+        return
+    print(f"Found {len(webp_files)} images. Starting conversion...")
+    with ThreadPoolExecutor() as executor:
+        executor.map(convert_image, webp_files)
+    with ThreadPoolExecutor() as executor:
+        executor.submit(delete_webp_files, path)
+    print("Mass conversion completed!")
 
 def create_folder(set_name: str, chat_id: int) -> str:
     """Create folder for stickers.
