@@ -77,6 +77,32 @@ def sticker(sticker_info: dict, chat_id: int) -> None:
         bot.send_document(chat_id, archive)
     delete_folder_file(path_to_folder)
 
+def convert_image(webp_path: Path) -> None:
+    png_path = webp_path.with_suffix('.png')
+    with Image.open(webp_path) as img:
+        img.save(png_path, 'PNG')
+
+
+def delete_webp_files(path: Path) -> None:
+    for file in path.glob("*.webp"):
+        try:
+            file.unlink()
+            print(f"Deleted: {file.name}")
+        except Exception as e:
+            print(f"Error deleting {file.name}: {e}")
+
+
+def batch_convert(path: Path) -> None:
+    webp_files = list(path.glob("*.webp"))
+    if not webp_files:
+        print("No .webp files found in this directory.")
+        return
+    print(f"Found {len(webp_files)} images. Starting conversion...")
+    with ThreadPoolExecutor() as executor:
+        executor.map(convert_image, webp_files)
+    with ThreadPoolExecutor() as executor:
+        executor.submit(delete_webp_files, path)
+    print("Mass conversion completed!")
 
 def sticker_pack(sticker_info: dict, chat_id: int) -> None:
     bot.send_message(chat_id, "Please wait a moment😛")

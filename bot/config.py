@@ -6,10 +6,6 @@ dotenv.load_dotenv()
 
 
 # Telegram token
-<<<<<<< HEAD
-# Telegram token
-=======
->>>>>>> master
 TOKEN = os.getenv("TOKEN")
 # Path to project folder
 BASE_DIR = Path("__file__").parent.parent.absolute()
