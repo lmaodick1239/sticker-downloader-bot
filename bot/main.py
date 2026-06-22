@@ -9,6 +9,7 @@ from config import STICKERS_DIR, TOKEN, URL
 from telebot.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from concurrent.futures import ThreadPoolExecutor
 import io
+import traceback
 from PIL import Image
 
 # This will be executed by both the main process and worker processes,
@@ -52,6 +53,7 @@ def message(message: Message) -> None:
         inline_markup = InlineKeyboardMarkup(row_width=2).add(
             InlineKeyboardButton("Download the sticker", callback_data="sticker"),
             InlineKeyboardButton("Download sticker pack", callback_data="pack"),
+            InlineKeyboardButton("Download Split Sticker Pack", callback_data="pack30")
         )
         sent_msg = bot.send_message(
             message.chat.id,
@@ -97,6 +99,8 @@ def callback(call: CallbackQuery) -> None:
             sticker(sticker_info, chat_id)
         elif call.data == "pack":
             sticker_pack(sticker_info, chat_id)
+        elif call.data == "pack30":
+            sticker_pack30(sticker_info, chat_id)
 
 
 def download_worker(queue):
@@ -115,11 +119,13 @@ def download_worker(queue):
                 sticker(sticker_info, chat_id)
             elif action == "pack":
                 sticker_pack(sticker_info, chat_id)
+            elif action == "pack30":
+                sticker_pack30(sticker_info, chat_id)
                 
             bot.send_message(chat_id, "✅ Your sticker task has been completed!")
                 
         except Exception as e:
-            print(f"Error in worker process: {e}")
+            traceback.print_exc()
             try:
                 bot.send_message(chat_id, "⚠️ An error occurred while processing your sticker.")
             except Exception:
@@ -150,7 +156,7 @@ def sticker(sticker_info: dict, chat_id: int) -> None:
         bot.send_document(chat_id, archive)
     # Delete tar file and folder
     delete_folder_file(path_to_folder)
-    
+
     
 def convert_image(webp_path):
     # Define output path with .png extension
@@ -166,7 +172,7 @@ def delete_webp_files(path: str) -> None:
 
     :param path: Path to folder.
     """
-    for file in Path(path).glob("*.webp"):
+    for file in Path(path).glob("**/*.webp"):
         try:
             file.unlink()
             print(f"Deleted: {file.name}")
@@ -175,7 +181,7 @@ def delete_webp_files(path: str) -> None:
         
 def batch_convert(path: str) -> None:
     # Target all .webp files in current working directory
-    webp_files = list(path.glob("*.webp"))
+    webp_files = list(path.glob("**/*.webp"))
     
     if not webp_files:
         print("No .webp files found in this directory.")
@@ -221,6 +227,42 @@ def sticker_pack(sticker_info: dict, chat_id: int) -> None:
     delete_folder_file(path_to_folder)
 
 
+def sticker_pack30(sticker_info: dict, chat_id: int) -> None:
+    """Handle the "pack30" button.
+    Create a folder, asynchronous download of stickers, create archive file of folder split per 30.
+    Send to user archive file and delete archive and folder.
+
+    :param sticker_info: A dictionary with data sticker.
+    :param chat_id: A user's id.
+    """
+    bot.send_message(chat_id, "Please wait a moment😛")
+    set_name = sticker_info["set_name"]
+    path_to_folder = create_folder(set_name, chat_id)
+    sticker_list = bot.get_sticker_set(set_name).stickers
+    tasks = []
+    for sticker_obj in sticker_list:
+        file_path = bot.get_file(sticker_obj.file_id).file_path
+        file_name = file_path.split("/")[1]
+        tasks.append((file_path, file_name))
+
+
+    images = download_stickers(tasks)
+    print(images)
+    # for name, image in images:
+    #     save_image(image.content, name, path_to_folder)
+    for index, (name,image) in enumerate(images):
+        # print(f"Saving image...{name} {path_to_folder}/f{index//30}")
+        save_image(image.content, name, f"{path_to_folder}/f{index//30}")
+    batch_convert(Path(path_to_folder))
+    # print(str(os.listdir(path_to_folder)))
+
+    # Folder archiving
+    shutil.make_archive(base_name=path_to_folder, format="zip", root_dir=path_to_folder)
+    with open(path_to_folder + ".zip", "rb") as archive:
+        bot.send_document(chat_id, archive)
+    # Delete tar file and folder
+    delete_folder_file(path_to_folder)
+
 def download_stickers(tasks: List[Tuple]) -> List[Tuple]:
     """Asynchronous download of stickers from Telegram server.
 
@@ -260,13 +302,22 @@ def delete_folder_file(path: str) -> None:
 
 
 def save_image(image: bytes, image_name: str, path: str) -> None:
-    """Save image to a user's folder.
+    """Save image to a user's folder, automatically creating subfolders if needed.
 
     :param image: Bytes of image.
-    :param image_name: A image name.
+    :param image_name: A image name (can include subfolders like 'f0/image.png').
     :param path: A location to save the image.
     """
-    with open(f"{path}/{image_name}", "wb") as img:
+    full_path = f"{path}/{image_name}"
+
+    # Extract the directory portion (e.g., "path/to/folder/f0")
+    target_dir = os.path.dirname(full_path)
+
+    # Create the directory and any missing parent directories safely
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+
+    with open(full_path, "wb") as img:
         img.write(image)
 
 
